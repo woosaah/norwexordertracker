@@ -95,25 +95,26 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 
-    <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide@latest"></script>
-
     <script type="text/babel" data-type="module">
         const { useState, useEffect, useRef } = React;
 
-        // Lucide Icon Components
+        // Icon mapping to Unicode/emoji
+        const iconMap = {
+            'check-circle': '✓',
+            'circle': '○',
+            'edit': '✏️',
+            'trash-2': '🗑️',
+            'plus': '+',
+            'search': '🔍',
+            'download': '⬇️',
+            'upload': '⬆️',
+            'x': '✕'
+        };
+
+        // Simple Icon Component using Unicode/emoji
         const Icon = ({ name, className = "", size = 20, ...props }) => {
-            const iconRef = useRef(null);
-
-            useEffect(() => {
-                if (iconRef.current && window.lucide) {
-                    const iconElement = window.lucide.createElement(name);
-                    iconRef.current.innerHTML = '';
-                    iconRef.current.appendChild(iconElement);
-                }
-            }, [name]);
-
-            return <i ref={iconRef} className={className} {...props}></i>;
+            const icon = iconMap[name] || '?';
+            return <span className={className} style={{ fontSize: size }} {...props}>{icon}</span>;
         };
 
         // Utility Functions
