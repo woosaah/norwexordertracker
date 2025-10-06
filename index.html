@@ -1,0 +1,1284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#7dd3c0">
+    <meta name="description" content="Offline order tracker for Norwex/Nutrimetics">
+    <title>Order Tracker - Norwex</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Tailwind Config -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#7dd3c0',
+                        secondary: '#ffffff',
+                        accent: '#f3f4f6',
+                        textDark: '#374151',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Manifest -->
+    <link rel="manifest" href="data:application/json;base64,ewogICJuYW1lIjogIk9yZGVyIFRyYWNrZXIiLAogICJzaG9ydF9uYW1lIjogIk9yZGVycyIsCiAgImRlc2NyaXB0aW9uIjogIk9mZmxpbmUgb3JkZXIgdHJhY2tlciBmb3IgTm9yd2V4L051dHJpbWV0aWNzIiwKICAic3RhcnRfdXJsIjogIi8iLAogICJkaXNwbGF5IjogInN0YW5kYWxvbmUiLAogICJiYWNrZ3JvdW5kX2NvbG9yIjogIiNmZmZmZmYiLAogICJ0aGVtZV9jb2xvciI6ICIjN2RkM2MwIiwKICAiaWNvbnMiOiBbCiAgICB7CiAgICAgICJzcmMiOiAiZGF0YTppbWFnZS9zdmcreG1sLCUzQ3N2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAxMDAgMTAwJyUzRSUzQ3RleHQgeT0nLjllbScgZm9udC1zaXplPSc5MCclM0UlRjAlOUYlOTMlOEIlM0MvdGV4dCUzRSUzQy9zdmclM0UiLAogICAgICAic2l6ZXMiOiAiNTEyeDUxMiIsCiAgICAgICJ0eXBlIjogImltYWdlL3N2Zyt4bWwiCiAgICB9CiAgXQp9">
+
+    <style>
+        * {
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #374151;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            animation: slideIn 0.3s ease-out;
+            z-index: 1000;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            max-width: 600px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body class="bg-accent">
+    <div id="root"></div>
+
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <script type="text/babel" data-type="module">
+        const { useState, useEffect, useRef } = React;
+
+        // Lucide Icon Components
+        const Icon = ({ name, className = "", size = 20, ...props }) => {
+            const iconRef = useRef(null);
+
+            useEffect(() => {
+                if (iconRef.current && window.lucide) {
+                    const iconElement = window.lucide.createElement(name);
+                    iconRef.current.innerHTML = '';
+                    iconRef.current.appendChild(iconElement);
+                }
+            }, [name]);
+
+            return <i ref={iconRef} className={className} {...props}></i>;
+        };
+
+        // Utility Functions
+        const formatCurrency = (amount) => {
+            return `$${parseFloat(amount || 0).toFixed(2)}`;
+        };
+
+        const formatDate = (date) => {
+            if (!date) return '';
+            return new Date(date).toLocaleDateString('en-NZ');
+        };
+
+        const getTodayString = () => {
+            return new Date().toISOString().split('T')[0];
+        };
+
+        const generateId = () => {
+            return Date.now().toString(36) + Math.random().toString(36).substr(2);
+        };
+
+        // Toast Component
+        const Toast = ({ message, onClose }) => {
+            useEffect(() => {
+                const timer = setTimeout(onClose, 3000);
+                return () => clearTimeout(timer);
+            }, [onClose]);
+
+            return (
+                <div className="toast">
+                    {message}
+                </div>
+            );
+        };
+
+        // Modal Component
+        const Modal = ({ isOpen, onClose, title, children }) => {
+            if (!isOpen) return null;
+
+            return (
+                <div className="modal-overlay" onClick={onClose}>
+                    <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                        <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex justify-between items-center">
+                            <h2 className="text-xl font-bold text-textDark">{title}</h2>
+                            <button
+                                onClick={onClose}
+                                className="p-2 hover:bg-gray-100 rounded-lg"
+                            >
+                                <Icon name="x" />
+                            </button>
+                        </div>
+                        <div className="p-4">
+                            {children}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Quick Add Modal Component
+        const QuickAddModal = ({ isOpen, onClose, onParse, customerName }) => {
+            const [text, setText] = useState('');
+
+            const handleParse = () => {
+                // Parse text for order items
+                const lines = text.split('\n').filter(line => line.trim());
+                const items = [];
+                let shipping = 0;
+
+                lines.forEach(line => {
+                    // Match patterns like "2x Hand Towel $15" or "1× Window Cloth $18 each"
+                    const itemMatch = line.match(/(\d+)\s*[x×]\s*(.+?)\s*\$(\d+\.?\d*)/i);
+                    if (itemMatch) {
+                        items.push({
+                            id: generateId(),
+                            name: itemMatch[2].replace(/each$/i, '').trim(),
+                            quantity: parseInt(itemMatch[1]),
+                            price: parseFloat(itemMatch[3])
+                        });
+                    }
+
+                    // Match shipping
+                    const shippingMatch = line.match(/shipping\s*\$(\d+\.?\d*)/i);
+                    if (shippingMatch) {
+                        shipping = parseFloat(shippingMatch[1]);
+                    }
+                });
+
+                if (items.length > 0) {
+                    onParse({ items, shipping });
+                    setText('');
+                    onClose();
+                } else {
+                    alert('No items found. Try format like: "2x Hand Towel $15 each"');
+                }
+            };
+
+            return (
+                <Modal isOpen={isOpen} onClose={onClose} title={`Quick Add for ${customerName}`}>
+                    <div className="space-y-4">
+                        <p className="text-sm text-gray-600">
+                            Paste order details. Example:<br/>
+                            <code className="bg-gray-100 px-2 py-1 rounded text-xs">
+                                2x Hand Towel $15 each<br/>
+                                1x Body Cloth $12<br/>
+                                shipping $8
+                            </code>
+                        </p>
+                        <textarea
+                            className="w-full border border-gray-300 rounded-lg p-3 h-40"
+                            placeholder="Paste order here..."
+                            value={text}
+                            onChange={(e) => setText(e.target.value)}
+                        />
+                        <div className="flex gap-2 justify-end">
+                            <button
+                                onClick={onClose}
+                                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleParse}
+                                className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-opacity-90"
+                            >
+                                Parse and Add Order
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
+
+        // Order Form Component
+        const OrderForm = ({ isOpen, onClose, onSave, order, customerName }) => {
+            const [formData, setFormData] = useState({
+                id: '',
+                date: getTodayString(),
+                items: [{ id: generateId(), name: '', quantity: 1, price: 0 }],
+                discount: 32,
+                shipping: 0,
+                paid: false,
+                paymentDate: '',
+                notes: ''
+            });
+
+            useEffect(() => {
+                if (order) {
+                    setFormData(order);
+                } else {
+                    setFormData({
+                        id: generateId(),
+                        date: getTodayString(),
+                        items: [{ id: generateId(), name: '', quantity: 1, price: 0 }],
+                        discount: 32,
+                        shipping: 0,
+                        paid: false,
+                        paymentDate: '',
+                        notes: ''
+                    });
+                }
+            }, [order, isOpen]);
+
+            const calculateSubtotal = () => {
+                return formData.items.reduce((sum, item) => {
+                    return sum + (item.quantity * item.price);
+                }, 0);
+            };
+
+            const calculateDiscount = () => {
+                return calculateSubtotal() * (formData.discount / 100);
+            };
+
+            const calculateTotal = () => {
+                return calculateSubtotal() - calculateDiscount() + parseFloat(formData.shipping || 0);
+            };
+
+            const addItem = () => {
+                setFormData({
+                    ...formData,
+                    items: [...formData.items, { id: generateId(), name: '', quantity: 1, price: 0 }]
+                });
+            };
+
+            const removeItem = (id) => {
+                setFormData({
+                    ...formData,
+                    items: formData.items.filter(item => item.id !== id)
+                });
+            };
+
+            const updateItem = (id, field, value) => {
+                setFormData({
+                    ...formData,
+                    items: formData.items.map(item =>
+                        item.id === id ? { ...item, [field]: value } : item
+                    )
+                });
+            };
+
+            const togglePaid = () => {
+                const newPaid = !formData.paid;
+                setFormData({
+                    ...formData,
+                    paid: newPaid,
+                    paymentDate: newPaid ? getTodayString() : ''
+                });
+            };
+
+            const handleSave = () => {
+                if (formData.items.some(item => !item.name.trim())) {
+                    alert('Please fill in all item names');
+                    return;
+                }
+                onSave(formData);
+                onClose();
+            };
+
+            return (
+                <Modal isOpen={isOpen} onClose={onClose} title={order ? 'Edit Order' : `Add Order - ${customerName}`}>
+                    <div className="space-y-4">
+                        {/* Date */}
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Order Date
+                            </label>
+                            <input
+                                type="date"
+                                className="w-full border border-gray-300 rounded-lg p-2"
+                                value={formData.date}
+                                onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                            />
+                        </div>
+
+                        {/* Items */}
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Line Items
+                            </label>
+                            {formData.items.map((item, index) => (
+                                <div key={item.id} className="flex gap-2 mb-2">
+                                    <input
+                                        type="text"
+                                        placeholder="Item name"
+                                        className="flex-1 border border-gray-300 rounded-lg p-2"
+                                        value={item.name}
+                                        onChange={(e) => updateItem(item.id, 'name', e.target.value)}
+                                    />
+                                    <input
+                                        type="number"
+                                        placeholder="Qty"
+                                        className="w-20 border border-gray-300 rounded-lg p-2"
+                                        value={item.quantity}
+                                        onChange={(e) => updateItem(item.id, 'quantity', parseFloat(e.target.value) || 0)}
+                                        min="1"
+                                    />
+                                    <input
+                                        type="number"
+                                        placeholder="Price"
+                                        className="w-24 border border-gray-300 rounded-lg p-2"
+                                        value={item.price}
+                                        onChange={(e) => updateItem(item.id, 'price', parseFloat(e.target.value) || 0)}
+                                        min="0"
+                                        step="0.01"
+                                    />
+                                    <div className="w-24 flex items-center text-sm font-medium">
+                                        {formatCurrency(item.quantity * item.price)}
+                                    </div>
+                                    {formData.items.length > 1 && (
+                                        <button
+                                            onClick={() => removeItem(item.id)}
+                                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
+                                        >
+                                            <Icon name="trash-2" size={18} />
+                                        </button>
+                                    )}
+                                </div>
+                            ))}
+                            <button
+                                onClick={addItem}
+                                className="flex items-center gap-2 text-primary hover:bg-primary hover:bg-opacity-10 px-3 py-2 rounded-lg"
+                            >
+                                <Icon name="plus" size={18} />
+                                Add Item
+                            </button>
+                        </div>
+
+                        {/* Calculations */}
+                        <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+                            <div className="flex justify-between">
+                                <span>Retail Subtotal:</span>
+                                <span className="font-medium">{formatCurrency(calculateSubtotal())}</span>
+                            </div>
+
+                            <div className="flex justify-between items-center">
+                                <div className="flex items-center gap-2">
+                                    <span>Discount:</span>
+                                    <input
+                                        type="number"
+                                        className="w-16 border border-gray-300 rounded px-2 py-1 text-sm"
+                                        value={formData.discount}
+                                        onChange={(e) => setFormData({ ...formData, discount: parseFloat(e.target.value) || 0 })}
+                                        min="0"
+                                        max="100"
+                                    />
+                                    <span>%</span>
+                                </div>
+                                <span className="font-medium text-red-600">-{formatCurrency(calculateDiscount())}</span>
+                            </div>
+
+                            <div className="flex justify-between items-center">
+                                <span>Shipping:</span>
+                                <input
+                                    type="number"
+                                    className="w-24 border border-gray-300 rounded px-2 py-1 text-right"
+                                    value={formData.shipping}
+                                    onChange={(e) => setFormData({ ...formData, shipping: parseFloat(e.target.value) || 0 })}
+                                    min="0"
+                                    step="0.01"
+                                />
+                            </div>
+
+                            <div className="border-t pt-2 flex justify-between text-lg font-bold">
+                                <span>Total:</span>
+                                <span>{formatCurrency(calculateTotal())}</span>
+                            </div>
+                        </div>
+
+                        {/* Payment Status */}
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Payment Status
+                            </label>
+                            <button
+                                onClick={togglePaid}
+                                className={`flex items-center gap-2 px-4 py-2 rounded-lg ${
+                                    formData.paid
+                                        ? 'bg-green-100 text-green-700'
+                                        : 'bg-amber-100 text-amber-700'
+                                }`}
+                            >
+                                <Icon name={formData.paid ? 'check-circle' : 'circle'} />
+                                {formData.paid ? 'Paid' : 'Unpaid'}
+                            </button>
+
+                            {formData.paid && (
+                                <div className="mt-2">
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Payment Date
+                                    </label>
+                                    <input
+                                        type="date"
+                                        className="w-full border border-gray-300 rounded-lg p-2"
+                                        value={formData.paymentDate}
+                                        onChange={(e) => setFormData({ ...formData, paymentDate: e.target.value })}
+                                    />
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Notes */}
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Notes
+                            </label>
+                            <textarea
+                                className="w-full border border-gray-300 rounded-lg p-2"
+                                rows="3"
+                                placeholder="Add any notes..."
+                                value={formData.notes}
+                                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                            />
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex gap-2 justify-end pt-4">
+                            <button
+                                onClick={onClose}
+                                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleSave}
+                                className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-opacity-90"
+                            >
+                                Save Order
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
+
+        // Customer Form Component
+        const CustomerForm = ({ isOpen, onClose, onSave, customer }) => {
+            const [formData, setFormData] = useState({
+                id: '',
+                name: '',
+                email: '',
+                phone: ''
+            });
+
+            useEffect(() => {
+                if (customer) {
+                    setFormData(customer);
+                } else {
+                    setFormData({
+                        id: generateId(),
+                        name: '',
+                        email: '',
+                        phone: ''
+                    });
+                }
+            }, [customer, isOpen]);
+
+            const handleSave = () => {
+                if (!formData.name.trim()) {
+                    alert('Name is required');
+                    return;
+                }
+                onSave(formData);
+                onClose();
+            };
+
+            return (
+                <Modal isOpen={isOpen} onClose={onClose} title={customer ? 'Edit Customer' : 'Add Customer'}>
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Name *
+                            </label>
+                            <input
+                                type="text"
+                                className="w-full border border-gray-300 rounded-lg p-2"
+                                value={formData.name}
+                                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                                placeholder="Customer name"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Email
+                            </label>
+                            <input
+                                type="email"
+                                className="w-full border border-gray-300 rounded-lg p-2"
+                                value={formData.email}
+                                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                                placeholder="email@example.com"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Phone
+                            </label>
+                            <input
+                                type="tel"
+                                className="w-full border border-gray-300 rounded-lg p-2"
+                                value={formData.phone}
+                                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                                placeholder="021 123 4567"
+                            />
+                        </div>
+
+                        <div className="flex gap-2 justify-end pt-4">
+                            <button
+                                onClick={onClose}
+                                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleSave}
+                                className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-opacity-90"
+                            >
+                                Save Customer
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
+
+        // Order List Component
+        const OrderList = ({ orders, onEdit, onDelete }) => {
+            const calculateOrderTotal = (order) => {
+                const subtotal = order.items.reduce((sum, item) => sum + (item.quantity * item.price), 0);
+                const discount = subtotal * (order.discount / 100);
+                return subtotal - discount + parseFloat(order.shipping || 0);
+            };
+
+            if (orders.length === 0) {
+                return (
+                    <div className="text-center py-8 text-gray-500">
+                        No orders yet
+                    </div>
+                );
+            }
+
+            return (
+                <div className="space-y-3">
+                    {orders.map(order => (
+                        <div key={order.id} className="bg-white p-4 rounded-lg border border-gray-200">
+                            <div className="flex justify-between items-start mb-2">
+                                <div>
+                                    <div className="text-sm text-gray-600">
+                                        {formatDate(order.date)}
+                                    </div>
+                                    <div className="text-lg font-bold">
+                                        {formatCurrency(calculateOrderTotal(order))}
+                                    </div>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => onEdit(order)}
+                                        className="p-2 hover:bg-gray-100 rounded-lg"
+                                    >
+                                        <Icon name="edit" size={18} />
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            if (confirm('Delete this order? This cannot be undone.')) {
+                                                onDelete(order.id);
+                                            }
+                                        }}
+                                        className="p-2 hover:bg-red-50 text-red-500 rounded-lg"
+                                    >
+                                        <Icon name="trash-2" size={18} />
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="space-y-1 text-sm mb-2">
+                                {order.items.map(item => (
+                                    <div key={item.id} className="flex justify-between">
+                                        <span>{item.quantity}× {item.name}</span>
+                                        <span>{formatCurrency(item.quantity * item.price)}</span>
+                                    </div>
+                                ))}
+                                {order.shipping > 0 && (
+                                    <div className="flex justify-between text-gray-600">
+                                        <span>Shipping</span>
+                                        <span>{formatCurrency(order.shipping)}</span>
+                                    </div>
+                                )}
+                                {order.discount > 0 && (
+                                    <div className="flex justify-between text-red-600">
+                                        <span>Discount ({order.discount}%)</span>
+                                        <span>-{formatCurrency(order.items.reduce((sum, item) => sum + (item.quantity * item.price), 0) * (order.discount / 100))}</span>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                {order.paid ? (
+                                    <span className="flex items-center gap-1 text-green-600 text-sm">
+                                        <Icon name="check-circle" size={16} />
+                                        Paid {order.paymentDate && `on ${formatDate(order.paymentDate)}`}
+                                    </span>
+                                ) : (
+                                    <span className="flex items-center gap-1 text-amber-600 text-sm">
+                                        <Icon name="circle" size={16} />
+                                        Unpaid
+                                    </span>
+                                )}
+                            </div>
+
+                            {order.notes && (
+                                <div className="mt-2 text-sm text-gray-600 bg-gray-50 p-2 rounded">
+                                    {order.notes}
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            );
+        };
+
+        // Customer Card Component
+        const CustomerCard = ({ customer, orders, onAddOrder, onQuickAdd, onEditCustomer, onDeleteCustomer, onEditOrder, onDeleteOrder }) => {
+            const [expanded, setExpanded] = useState(false);
+
+            const customerOrders = orders.filter(o => o.customerId === customer.id);
+
+            const totalOwed = customerOrders
+                .filter(o => !o.paid)
+                .reduce((sum, order) => {
+                    const subtotal = order.items.reduce((s, i) => s + (i.quantity * i.price), 0);
+                    const discount = subtotal * (order.discount / 100);
+                    return sum + subtotal - discount + parseFloat(order.shipping || 0);
+                }, 0);
+
+            const totalPaid = customerOrders
+                .filter(o => o.paid)
+                .reduce((sum, order) => {
+                    const subtotal = order.items.reduce((s, i) => s + (i.quantity * i.price), 0);
+                    const discount = subtotal * (order.discount / 100);
+                    return sum + subtotal - discount + parseFloat(order.shipping || 0);
+                }, 0);
+
+            return (
+                <div className="bg-white rounded-lg shadow-md overflow-hidden">
+                    <div className="p-4 cursor-pointer" onClick={() => setExpanded(!expanded)}>
+                        <div className="flex justify-between items-start mb-2">
+                            <div>
+                                <h3 className="text-lg font-bold text-textDark">{customer.name}</h3>
+                                <div className="text-sm text-gray-600">
+                                    {customer.email && <div>{customer.email}</div>}
+                                    {customer.phone && <div>{customer.phone}</div>}
+                                </div>
+                            </div>
+                            <div className="flex gap-1">
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onEditCustomer(customer);
+                                    }}
+                                    className="p-2 hover:bg-gray-100 rounded-lg"
+                                >
+                                    <Icon name="edit" size={18} />
+                                </button>
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (confirm(`Delete ${customer.name}? This will delete all their orders too. This cannot be undone.`)) {
+                                            onDeleteCustomer(customer.id);
+                                        }
+                                    }}
+                                    className="p-2 hover:bg-red-50 text-red-500 rounded-lg"
+                                >
+                                    <Icon name="trash-2" size={18} />
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2 text-sm mb-2">
+                            <div className="bg-gray-50 p-2 rounded">
+                                <div className="text-gray-600">Orders</div>
+                                <div className="font-bold">{customerOrders.length}</div>
+                            </div>
+                            <div className="bg-amber-50 p-2 rounded">
+                                <div className="text-amber-600">Owed</div>
+                                <div className="font-bold text-amber-700">{formatCurrency(totalOwed)}</div>
+                            </div>
+                            <div className="bg-green-50 p-2 rounded">
+                                <div className="text-green-600">Paid</div>
+                                <div className="font-bold text-green-700">{formatCurrency(totalPaid)}</div>
+                            </div>
+                        </div>
+
+                        <div className="flex gap-2">
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onAddOrder(customer);
+                                }}
+                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-opacity-90"
+                            >
+                                <Icon name="plus" size={18} />
+                                Add Order
+                            </button>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onQuickAdd(customer);
+                                }}
+                                className="px-4 py-2 border border-primary text-primary rounded-lg hover:bg-primary hover:bg-opacity-10"
+                            >
+                                Quick Add
+                            </button>
+                        </div>
+                    </div>
+
+                    {expanded && customerOrders.length > 0 && (
+                        <div className="border-t p-4 bg-gray-50">
+                            <OrderList
+                                orders={customerOrders}
+                                onEdit={onEditOrder}
+                                onDelete={onDeleteOrder}
+                            />
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // Main App Component
+        const App = () => {
+            const [customers, setCustomers] = useState([]);
+            const [orders, setOrders] = useState([]);
+            const [searchTerm, setSearchTerm] = useState('');
+            const [filter, setFilter] = useState('all'); // all, paid, unpaid
+            const [toast, setToast] = useState(null);
+
+            // Modal states
+            const [customerFormOpen, setCustomerFormOpen] = useState(false);
+            const [editingCustomer, setEditingCustomer] = useState(null);
+            const [orderFormOpen, setOrderFormOpen] = useState(false);
+            const [editingOrder, setEditingOrder] = useState(null);
+            const [currentCustomer, setCurrentCustomer] = useState(null);
+            const [quickAddOpen, setQuickAddOpen] = useState(false);
+
+            // Initialize data from localStorage
+            useEffect(() => {
+                const savedData = localStorage.getItem('order-tracker-data');
+                if (savedData) {
+                    const data = JSON.parse(savedData);
+                    setCustomers(data.customers || []);
+                    setOrders(data.orders || []);
+                } else {
+                    // Load seed data
+                    const seedCustomers = [
+                        {
+                            id: 'seed-1',
+                            name: 'Sarah Johnson',
+                            email: 'sarah@email.com',
+                            phone: '021 123 4567'
+                        },
+                        {
+                            id: 'seed-2',
+                            name: 'Jess Martin',
+                            email: '',
+                            phone: '021 987 6543'
+                        },
+                        {
+                            id: 'seed-3',
+                            name: 'Emma Davis',
+                            email: 'emma.d@email.com',
+                            phone: ''
+                        }
+                    ];
+
+                    const seedOrders = [
+                        {
+                            id: 'order-1',
+                            customerId: 'seed-1',
+                            date: '2025-09-15',
+                            items: [
+                                { id: 'item-1', name: 'Hand Towel', quantity: 2, price: 15 },
+                                { id: 'item-2', name: 'Body Cloth', quantity: 1, price: 12 }
+                            ],
+                            discount: 32,
+                            shipping: 8,
+                            paid: true,
+                            paymentDate: '2025-09-20',
+                            notes: ''
+                        },
+                        {
+                            id: 'order-2',
+                            customerId: 'seed-1',
+                            date: '2025-09-28',
+                            items: [
+                                { id: 'item-3', name: 'Window Cloth', quantity: 3, price: 18 }
+                            ],
+                            discount: 32,
+                            shipping: 10,
+                            paid: false,
+                            paymentDate: '',
+                            notes: ''
+                        },
+                        {
+                            id: 'order-3',
+                            customerId: 'seed-2',
+                            date: '2025-09-10',
+                            items: [
+                                { id: 'item-4', name: 'EnviroCloth Pack', quantity: 1, price: 45 }
+                            ],
+                            discount: 32,
+                            shipping: 6,
+                            paid: true,
+                            paymentDate: '2025-09-12',
+                            notes: ''
+                        },
+                        {
+                            id: 'order-4',
+                            customerId: 'seed-3',
+                            date: '2025-10-01',
+                            items: [
+                                { id: 'item-5', name: 'Kitchen Towel', quantity: 4, price: 14 },
+                                { id: 'item-6', name: 'Cleaning Paste', quantity: 2, price: 28 }
+                            ],
+                            discount: 32,
+                            shipping: 12,
+                            paid: false,
+                            paymentDate: '',
+                            notes: ''
+                        }
+                    ];
+
+                    setCustomers(seedCustomers);
+                    setOrders(seedOrders);
+                }
+            }, []);
+
+            // Save to localStorage whenever data changes
+            useEffect(() => {
+                if (customers.length > 0 || orders.length > 0) {
+                    localStorage.setItem('order-tracker-data', JSON.stringify({ customers, orders }));
+                }
+            }, [customers, orders]);
+
+            // Toast helper
+            const showToast = (message) => {
+                setToast(message);
+            };
+
+            // Customer handlers
+            const handleSaveCustomer = (customer) => {
+                if (editingCustomer) {
+                    setCustomers(customers.map(c => c.id === customer.id ? customer : c));
+                    showToast('Customer updated!');
+                } else {
+                    setCustomers([...customers, customer]);
+                    showToast('Customer added!');
+                }
+                setEditingCustomer(null);
+            };
+
+            const handleDeleteCustomer = (id) => {
+                setCustomers(customers.filter(c => c.id !== id));
+                setOrders(orders.filter(o => o.customerId !== id));
+                showToast('Customer deleted!');
+            };
+
+            // Order handlers
+            const handleSaveOrder = (order) => {
+                if (editingOrder) {
+                    setOrders(orders.map(o => o.id === order.id ? order : o));
+                    showToast('Order updated!');
+                } else {
+                    setOrders([...orders, { ...order, customerId: currentCustomer.id }]);
+                    showToast('Order added!');
+                }
+                setEditingOrder(null);
+                setCurrentCustomer(null);
+            };
+
+            const handleDeleteOrder = (id) => {
+                setOrders(orders.filter(o => o.id !== id));
+                showToast('Order deleted!');
+            };
+
+            const handleQuickAddParse = ({ items, shipping }) => {
+                const newOrder = {
+                    id: generateId(),
+                    customerId: currentCustomer.id,
+                    date: getTodayString(),
+                    items,
+                    discount: 32,
+                    shipping,
+                    paid: false,
+                    paymentDate: '',
+                    notes: ''
+                };
+                setOrders([...orders, newOrder]);
+                showToast('Order added from quick parse!');
+            };
+
+            // Data management
+            const handleExport = () => {
+                const data = { customers, orders };
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `order-tracker-backup-${getTodayString()}.json`;
+                a.click();
+                showToast('Data exported!');
+            };
+
+            const handleImport = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const data = JSON.parse(event.target.result);
+                        if (confirm('Import this data? This will replace all current data.')) {
+                            setCustomers(data.customers || []);
+                            setOrders(data.orders || []);
+                            showToast('Data imported!');
+                        }
+                    } catch (err) {
+                        alert('Invalid file format');
+                    }
+                };
+                reader.readAsText(file);
+                e.target.value = '';
+            };
+
+            const handleClearAll = () => {
+                if (confirm('Clear ALL data? This cannot be undone!')) {
+                    if (confirm('Are you REALLY sure? This will delete everything!')) {
+                        setCustomers([]);
+                        setOrders([]);
+                        localStorage.removeItem('order-tracker-data');
+                        showToast('All data cleared!');
+                    }
+                }
+            };
+
+            // Calculate totals
+            const totalCustomers = customers.length;
+            const totalOrders = orders.length;
+
+            const totalSales = orders.reduce((sum, order) => {
+                const subtotal = order.items.reduce((s, i) => s + (i.quantity * i.price), 0);
+                const discount = subtotal * (order.discount / 100);
+                return sum + subtotal - discount + parseFloat(order.shipping || 0);
+            }, 0);
+
+            const totalUnpaid = orders
+                .filter(o => !o.paid)
+                .reduce((sum, order) => {
+                    const subtotal = order.items.reduce((s, i) => s + (i.quantity * i.price), 0);
+                    const discount = subtotal * (order.discount / 100);
+                    return sum + subtotal - discount + parseFloat(order.shipping || 0);
+                }, 0);
+
+            // Filter customers
+            const filteredCustomers = customers.filter(customer => {
+                // Search filter
+                const matchesSearch = customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                     customer.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                     customer.phone.toLowerCase().includes(searchTerm.toLowerCase());
+
+                if (!matchesSearch) return false;
+
+                // Payment filter
+                if (filter === 'all') return true;
+
+                const customerOrders = orders.filter(o => o.customerId === customer.id);
+                if (filter === 'paid') {
+                    return customerOrders.some(o => o.paid);
+                } else if (filter === 'unpaid') {
+                    return customerOrders.some(o => !o.paid);
+                }
+
+                return true;
+            });
+
+            // Sort orders by date (newest first)
+            const sortedOrders = [...orders].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            return (
+                <div className="min-h-screen bg-accent">
+                    {/* Header */}
+                    <div className="sticky top-0 bg-primary shadow-lg z-40">
+                        <div className="max-w-6xl mx-auto px-4 py-4">
+                            <div className="flex items-center justify-between mb-4">
+                                <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+                                    📋 Order Tracker
+                                </h1>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={handleExport}
+                                        className="p-2 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg text-white"
+                                        title="Export Data"
+                                    >
+                                        <Icon name="download" />
+                                    </button>
+                                    <label className="p-2 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg text-white cursor-pointer" title="Import Data">
+                                        <Icon name="upload" />
+                                        <input type="file" accept=".json" onChange={handleImport} className="hidden" />
+                                    </label>
+                                    <button
+                                        onClick={handleClearAll}
+                                        className="p-2 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg text-white"
+                                        title="Clear All Data"
+                                    >
+                                        <Icon name="trash-2" />
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Summary Cards */}
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                <div className="bg-white bg-opacity-20 p-3 rounded-lg">
+                                    <div className="text-white text-opacity-80 text-sm">Customers</div>
+                                    <div className="text-2xl font-bold text-white">{totalCustomers}</div>
+                                </div>
+                                <div className="bg-white bg-opacity-20 p-3 rounded-lg">
+                                    <div className="text-white text-opacity-80 text-sm">Orders</div>
+                                    <div className="text-2xl font-bold text-white">{totalOrders}</div>
+                                </div>
+                                <div className="bg-white bg-opacity-20 p-3 rounded-lg">
+                                    <div className="text-white text-opacity-80 text-sm">Total Sales</div>
+                                    <div className="text-2xl font-bold text-white">{formatCurrency(totalSales)}</div>
+                                </div>
+                                <div className="bg-white bg-opacity-20 p-3 rounded-lg">
+                                    <div className="text-white text-opacity-80 text-sm">Unpaid</div>
+                                    <div className="text-2xl font-bold text-white">{formatCurrency(totalUnpaid)}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Main Content */}
+                    <div className="max-w-6xl mx-auto px-4 py-6">
+                        {/* Controls */}
+                        <div className="mb-6 space-y-4">
+                            <div className="flex gap-2">
+                                <div className="flex-1 relative">
+                                    <Icon name="search" className="absolute left-3 top-3 text-gray-400" />
+                                    <input
+                                        type="text"
+                                        placeholder="Search customers..."
+                                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg"
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                    />
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        setEditingCustomer(null);
+                                        setCustomerFormOpen(true);
+                                    }}
+                                    className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-opacity-90"
+                                >
+                                    <Icon name="plus" />
+                                    Add Customer
+                                </button>
+                            </div>
+
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => setFilter('all')}
+                                    className={`px-4 py-2 rounded-lg ${
+                                        filter === 'all'
+                                            ? 'bg-primary text-white'
+                                            : 'bg-white border border-gray-300'
+                                    }`}
+                                >
+                                    All
+                                </button>
+                                <button
+                                    onClick={() => setFilter('paid')}
+                                    className={`px-4 py-2 rounded-lg ${
+                                        filter === 'paid'
+                                            ? 'bg-green-500 text-white'
+                                            : 'bg-white border border-gray-300'
+                                    }`}
+                                >
+                                    Paid
+                                </button>
+                                <button
+                                    onClick={() => setFilter('unpaid')}
+                                    className={`px-4 py-2 rounded-lg ${
+                                        filter === 'unpaid'
+                                            ? 'bg-amber-500 text-white'
+                                            : 'bg-white border border-gray-300'
+                                    }`}
+                                >
+                                    Unpaid
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Customer List */}
+                        <div className="space-y-4">
+                            {filteredCustomers.length === 0 ? (
+                                <div className="bg-white rounded-lg shadow-md p-8 text-center text-gray-500">
+                                    {customers.length === 0 ? (
+                                        <>
+                                            <p className="mb-4">No customers yet. Get started by adding your first customer!</p>
+                                            <button
+                                                onClick={() => {
+                                                    setEditingCustomer(null);
+                                                    setCustomerFormOpen(true);
+                                                }}
+                                                className="px-6 py-3 bg-primary text-white rounded-lg hover:bg-opacity-90"
+                                            >
+                                                Add Your First Customer
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <p>No customers match your search or filter.</p>
+                                    )}
+                                </div>
+                            ) : (
+                                filteredCustomers.map(customer => (
+                                    <CustomerCard
+                                        key={customer.id}
+                                        customer={customer}
+                                        orders={sortedOrders}
+                                        onAddOrder={(customer) => {
+                                            setCurrentCustomer(customer);
+                                            setEditingOrder(null);
+                                            setOrderFormOpen(true);
+                                        }}
+                                        onQuickAdd={(customer) => {
+                                            setCurrentCustomer(customer);
+                                            setQuickAddOpen(true);
+                                        }}
+                                        onEditCustomer={(customer) => {
+                                            setEditingCustomer(customer);
+                                            setCustomerFormOpen(true);
+                                        }}
+                                        onDeleteCustomer={handleDeleteCustomer}
+                                        onEditOrder={(order) => {
+                                            const customer = customers.find(c => c.id === order.customerId);
+                                            setCurrentCustomer(customer);
+                                            setEditingOrder(order);
+                                            setOrderFormOpen(true);
+                                        }}
+                                        onDeleteOrder={handleDeleteOrder}
+                                    />
+                                ))
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Modals */}
+                    <CustomerForm
+                        isOpen={customerFormOpen}
+                        onClose={() => {
+                            setCustomerFormOpen(false);
+                            setEditingCustomer(null);
+                        }}
+                        onSave={handleSaveCustomer}
+                        customer={editingCustomer}
+                    />
+
+                    <OrderForm
+                        isOpen={orderFormOpen}
+                        onClose={() => {
+                            setOrderFormOpen(false);
+                            setEditingOrder(null);
+                            setCurrentCustomer(null);
+                        }}
+                        onSave={handleSaveOrder}
+                        order={editingOrder}
+                        customerName={currentCustomer?.name}
+                    />
+
+                    <QuickAddModal
+                        isOpen={quickAddOpen}
+                        onClose={() => {
+                            setQuickAddOpen(false);
+                            setCurrentCustomer(null);
+                        }}
+                        onParse={handleQuickAddParse}
+                        customerName={currentCustomer?.name}
+                    />
+
+                    {/* Toast */}
+                    {toast && (
+                        <Toast
+                            message={toast}
+                            onClose={() => setToast(null)}
+                        />
+                    )}
+                </div>
+            );
+        };
+
+        // Render App
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+
+    <!-- Babel Standalone for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</body>
+</html>
