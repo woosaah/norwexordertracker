@@ -872,14 +872,11 @@
 
                 totalOrderValue += orderTotal;
 
-                // Add part payments
+                // Add part payments if they exist, otherwise fall back to legacy paid flag
                 if (order.payments && order.payments.length > 0) {
                     const partPaymentsTotal = order.payments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
                     totalPaidAmount += partPaymentsTotal;
-                }
-
-                // Add legacy paid status
-                if (order.paid) {
+                } else if (order.paid) {
                     totalPaidAmount += orderTotal;
                 }
             });
